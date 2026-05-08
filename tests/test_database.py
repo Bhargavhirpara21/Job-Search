@@ -2,12 +2,13 @@
 
 from datetime import datetime
 import logging
+from pathlib import Path
 
 from job_collector.database import JobDatabase
 from job_collector.models import JobPosting
 
 
-def test_upsert_inserts_new_job_then_marks_duplicate_seen(tmp_path) -> None:
+def test_upsert_inserts_new_job_then_marks_duplicate_seen(tmp_path: Path) -> None:
     """Duplicate company/title/url jobs should update metadata instead of duplicating rows."""
     database = JobDatabase(tmp_path / "jobs.sqlite3", logging.getLogger("test_database"))
     database.initialize()
@@ -30,4 +31,3 @@ def test_upsert_inserts_new_job_then_marks_duplicate_seen(tmp_path) -> None:
     assert second_record.last_checked == "2026-05-09T10:00:00"
     assert len(records) == 1
     assert records[0].matched_keywords == ("software", "engineer")
-

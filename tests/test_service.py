@@ -1,6 +1,7 @@
 """Tests for the scan service and company CSV loading."""
 
 import logging
+from pathlib import Path
 
 from job_collector.database import JobDatabase
 from job_collector.models import Company
@@ -17,7 +18,7 @@ class _FakeScraper:
         return self.pages.get(company.company_name)
 
 
-def test_scan_service_saves_jobs_and_continues_after_failed_pages(tmp_path) -> None:
+def test_scan_service_saves_jobs_and_continues_after_failed_pages(tmp_path: Path) -> None:
     """Scanning should persist matching jobs and report failed company pages."""
     logger = logging.getLogger("test_service")
     database = JobDatabase(tmp_path / "jobs.sqlite3", logger)
@@ -54,7 +55,7 @@ def test_scan_service_saves_jobs_and_continues_after_failed_pages(tmp_path) -> N
     assert records[0].status == "new"
 
 
-def test_scan_service_marks_existing_jobs_as_seen_on_next_scan(tmp_path) -> None:
+def test_scan_service_marks_existing_jobs_as_seen_on_next_scan(tmp_path: Path) -> None:
     """A second scan of the same job should update the existing row to seen."""
     logger = logging.getLogger("test_service_seen")
     database = JobDatabase(tmp_path / "jobs.sqlite3", logger)
@@ -85,7 +86,7 @@ def test_scan_service_marks_existing_jobs_as_seen_on_next_scan(tmp_path) -> None
     assert records[0].status == "seen"
 
 
-def test_load_companies_from_csv_reads_required_and_optional_columns(tmp_path) -> None:
+def test_load_companies_from_csv_reads_required_and_optional_columns(tmp_path: Path) -> None:
     """CSV loading should read required fields and optional metadata."""
     csv_path = tmp_path / "companies.csv"
     csv_path.write_text(
@@ -104,4 +105,3 @@ def test_load_companies_from_csv_reads_required_and_optional_columns(tmp_path) -
             notes="Main portal",
         )
     ]
-

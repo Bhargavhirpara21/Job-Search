@@ -20,6 +20,7 @@ class CareerPageLoader(Protocol):
 
     def fetch_html(self, company: Company) -> str | None:
         """Return rendered HTML for a company career page, or None on failure."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,4 +195,3 @@ def _clean_cell(value: object) -> str | None:
     if not cleaned_value:
         return None
     return cleaned_value
-
