@@ -1,0 +1,6 @@
+.pytest_tmp/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+data/jobs.sqlite3
+data/*.sqlite3
