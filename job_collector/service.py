@@ -130,9 +130,17 @@ class JobScanService:
             return None, str(exc)
 
     def _get_loader_error(self, company: Company) -> str | None:
-        if not isinstance(self._scraper, CareerPageLoadDiagnostics):
+        get_last_error = getattr(self._scraper, "get_last_error", None)
+        if not callable(get_last_error):
             return None
-        return self._scraper.get_last_error(company)
+
+        try:
+            error = get_last_error(company)
+        except (RuntimeError, ValueError, TypeError) as exc:
+            self._logger.debug("Could not read loader diagnostics for %s: %s", company.company_name, exc)
+            return None
+
+        return str(error) if error is not None else None
 
 
 def load_companies_from_csv(csv_path: Path, logger: logging.Logger) -> list[Company]:

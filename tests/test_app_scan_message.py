@@ -15,7 +15,7 @@ def test_scan_message_reports_all_failed_scan_without_implying_empty_results() -
 
     assert level == "error"
     assert "Live scan failed" in message
-    assert "earlier successful scan" in message
+    assert "No job table was refreshed" in message
 
 
 def test_scan_message_reports_partial_failures_as_warning() -> None:

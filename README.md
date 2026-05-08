@@ -41,4 +41,6 @@ Some career sites may block automation, require login, use CAPTCHA, or hide jobs
 streamlit run app.py
 ```
 
-Use the dashboard to scan all companies, filter by company/status/title, open original job postings, and export the current table to CSV.
+Use the dashboard to choose one or more companies from `data/companies.csv`, scan jobs, filter by company/status/title, open original job postings, and export the current table to CSV.
+
+The dashboard does not show old stored jobs on first load. It shows results after a scan succeeds in the current browser session.

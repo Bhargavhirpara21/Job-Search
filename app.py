@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import logging
+from pathlib import Path
+import subprocess
+import sys
 
 import pandas as pd
 import streamlit as st
@@ -10,13 +14,8 @@ import streamlit as st
 from job_collector.config import AppConfig
 from job_collector.database import JobDatabase
 from job_collector.models import Company, JobStatus
-from job_collector.scraper import PlaywrightCareerScraper
-from job_collector.service import (
-    CompanyScanResult,
-    JobScanService,
-    job_records_to_dataframe,
-    load_companies_from_csv,
-)
+from job_collector.scan_worker import load_scan_results
+from job_collector.service import CompanyScanResult, job_records_to_dataframe, load_companies_from_csv
 
 
 def main() -> None:
@@ -29,10 +28,16 @@ def main() -> None:
     st.set_page_config(page_title="Job Opening Collector", layout="wide")
     st.title("Job Opening Collector")
 
+    _initialize_session_state()
     companies = _load_configured_companies(config, logger)
     _render_configured_companies(companies)
-    _render_scan_controls(config, database, logger, companies)
-    _render_job_table(database, companies)
+    _render_scan_controls(config, logger, companies)
+    _render_scan_feedback(companies)
+
+    if bool(st.session_state["show_jobs"]):
+        _render_job_table(database, companies, tuple(st.session_state["last_selected_company_names"]))
+    else:
+        st.info("Choose one or more companies from the CSV, then click Scan jobs.")
 
 
 def _configure_logging() -> logging.Logger:
@@ -41,6 +46,15 @@ def _configure_logging() -> logging.Logger:
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
     return logging.getLogger("job_collector")
+
+
+def _initialize_session_state() -> None:
+    if "show_jobs" not in st.session_state:
+        st.session_state["show_jobs"] = False
+    if "last_scan_results" not in st.session_state:
+        st.session_state["last_scan_results"] = ()
+    if "last_selected_company_names" not in st.session_state:
+        st.session_state["last_selected_company_names"] = ()
 
 
 def _load_configured_companies(config: AppConfig, logger: logging.Logger) -> list[Company]:
@@ -76,40 +90,130 @@ def _render_configured_companies(companies: list[Company]) -> None:
         )
 
 
-def _render_scan_controls(
-    config: AppConfig,
-    database: JobDatabase,
-    logger: logging.Logger,
-    companies: list[Company],
-) -> None:
-    if st.button("Scan all companies", type="primary"):
+def _render_scan_controls(config: AppConfig, logger: logging.Logger, companies: list[Company]) -> None:
+    company_names = [company.company_name for company in companies]
+    selected_company_names = st.multiselect(
+        "Companies to scan",
+        company_names,
+        default=company_names,
+        help="Loaded from data/companies.csv.",
+    )
+
+    if st.button("Scan jobs", type="primary"):
         if not companies:
             logger.warning("No valid companies found in %s", config.companies_csv_path)
             st.warning("No valid companies found in the CSV file.")
             return
+        if not selected_company_names:
+            st.warning("Choose at least one company to scan.")
+            return
 
-        scraper = PlaywrightCareerScraper(logger)
-        service = JobScanService(scraper, database, logger)
         with st.spinner("Scanning company career pages..."):
-            summary = service.scan_companies(companies)
+            results = _run_scan_worker(config, tuple(selected_company_names), logger)
 
-        message_level, message = _build_scan_message(summary.results)
-        if message_level == "error":
-            st.error(message)
-        elif message_level == "warning":
-            st.warning(message)
-        else:
-            st.success(message)
+        st.session_state["last_scan_results"] = results
+        st.session_state["last_selected_company_names"] = tuple(selected_company_names)
+        st.session_state["show_jobs"] = bool(results) and not _all_scan_results_failed(results)
 
-        _render_scan_summary(summary.results)
-        failed_companies = [result.company_name for result in summary.results if result.error is not None]
-        if failed_companies:
-            logger.warning("Failed companies during scan: %s", ", ".join(failed_companies))
-            st.warning(f"Could not load: {', '.join(failed_companies)}")
-            with st.expander("Load error details", expanded=len(failed_companies) == len(companies)):
-                for result in summary.results:
-                    if result.error is not None:
-                        st.write(f"{result.company_name}: {result.error}")
+
+def _render_scan_feedback(companies: list[Company]) -> None:
+    results = tuple(st.session_state["last_scan_results"])
+    if not results:
+        return
+
+    message_level, message = _build_scan_message(results)
+    if message_level == "error":
+        st.error(message)
+    elif message_level == "warning":
+        st.warning(message)
+    else:
+        st.success(message)
+
+    _render_scan_summary(results)
+    failed_companies = [result.company_name for result in results if result.error is not None]
+    if failed_companies:
+        st.warning(f"Could not load: {', '.join(failed_companies)}")
+        with st.expander("Load error details", expanded=len(failed_companies) == len(companies)):
+            for result in results:
+                if result.error is not None:
+                    st.write(f"{result.company_name}: {result.error}")
+
+
+def _run_scan_worker(
+    config: AppConfig,
+    selected_company_names: Sequence[str],
+    logger: logging.Logger,
+) -> tuple[CompanyScanResult, ...]:
+    result_json_path = config.data_dir / "last_scan_result.json"
+    command = _build_scan_worker_command(config, result_json_path, selected_company_names)
+
+    try:
+        completed_process = subprocess.run(
+            command,
+            cwd=Path.cwd(),
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        logger.warning("Scan worker timed out: %s", exc)
+        return _failed_results(selected_company_names, "Scan worker timed out after 300 seconds.")
+    except OSError as exc:
+        logger.warning("Could not start scan worker: %s", exc)
+        return _failed_results(selected_company_names, f"Could not start scan worker: {exc}")
+
+    if completed_process.stderr.strip():
+        logger.warning("Scan worker stderr: %s", completed_process.stderr.strip())
+
+    try:
+        results = load_scan_results(result_json_path, logger)
+    except (RuntimeError, ValueError) as exc:
+        logger.warning("Could not load scan worker results: %s", exc)
+        return _failed_results(selected_company_names, str(exc))
+
+    if completed_process.returncode != 0 and not results:
+        return _failed_results(selected_company_names, completed_process.stderr.strip() or "Scan worker failed.")
+
+    return results
+
+
+def _build_scan_worker_command(
+    config: AppConfig,
+    result_json_path: Path,
+    selected_company_names: Sequence[str],
+) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "job_collector.scan_worker",
+        "--companies-csv",
+        str(config.companies_csv_path),
+        "--database",
+        str(config.database_path),
+        "--result-json",
+        str(result_json_path),
+    ]
+    for company_name in selected_company_names:
+        command.extend(["--company", company_name])
+    return command
+
+
+def _failed_results(selected_company_names: Sequence[str], error: str) -> tuple[CompanyScanResult, ...]:
+    return tuple(
+        CompanyScanResult(
+            company_name=company_name,
+            found_jobs=0,
+            new_jobs=0,
+            seen_jobs=0,
+            error=error,
+        )
+        for company_name in selected_company_names
+    )
+
+
+def _all_scan_results_failed(results: Sequence[CompanyScanResult]) -> bool:
+    return bool(results) and all(result.error is not None for result in results)
 
 
 def _render_scan_summary(results: tuple[CompanyScanResult, ...]) -> None:
@@ -139,10 +243,7 @@ def _build_scan_message(results: tuple[CompanyScanResult, ...]) -> tuple[str, st
     failed_companies = [result for result in results if result.error is not None]
 
     if results and len(failed_companies) == len(results):
-        return (
-            "error",
-            "Live scan failed for all configured companies. Existing jobs below are from an earlier successful scan.",
-        )
+        return "error", "Live scan failed for all selected companies. No job table was refreshed."
 
     message = f"Scan complete: {total_matching_jobs} matching jobs, {new_jobs} new, {seen_jobs} seen."
     if failed_companies:
@@ -151,7 +252,11 @@ def _build_scan_message(results: tuple[CompanyScanResult, ...]) -> tuple[str, st
     return "success", message
 
 
-def _render_job_table(database: JobDatabase, companies: list[Company]) -> None:
+def _render_job_table(
+    database: JobDatabase,
+    companies: list[Company],
+    visible_company_names: Sequence[str],
+) -> None:
     try:
         all_records = database.list_jobs()
     except RuntimeError as exc:
@@ -159,10 +264,12 @@ def _render_job_table(database: JobDatabase, companies: list[Company]) -> None:
         return
 
     all_jobs = job_records_to_dataframe(all_records)
+    if visible_company_names and not all_jobs.empty:
+        all_jobs = all_jobs[all_jobs["company_name"].isin(tuple(visible_company_names))]
 
     if all_jobs.empty:
         _render_filters(pd.DataFrame(), companies)
-        st.info("No matching jobs stored yet.")
+        st.info("No matching jobs were stored for the latest successful scan.")
         return
 
     selected_company, selected_status, title_search = _render_filters(all_jobs, companies)
