@@ -93,16 +93,20 @@ def _render_scan_controls(
         with st.spinner("Scanning company career pages..."):
             summary = service.scan_companies(companies)
 
-        st.success(
-            f"Scan complete: {summary.total_matching_jobs} matching jobs, "
-            f"{summary.new_jobs} new, {summary.seen_jobs} seen."
-        )
+        message_level, message = _build_scan_message(summary.results)
+        if message_level == "error":
+            st.error(message)
+        elif message_level == "warning":
+            st.warning(message)
+        else:
+            st.success(message)
+
         _render_scan_summary(summary.results)
         failed_companies = [result.company_name for result in summary.results if result.error is not None]
         if failed_companies:
             logger.warning("Failed companies during scan: %s", ", ".join(failed_companies))
             st.warning(f"Could not load: {', '.join(failed_companies)}")
-            with st.expander("Load error details"):
+            with st.expander("Load error details", expanded=len(failed_companies) == len(companies)):
                 for result in summary.results:
                     if result.error is not None:
                         st.write(f"{result.company_name}: {result.error}")
@@ -126,6 +130,25 @@ def _render_scan_summary(results: tuple[CompanyScanResult, ...]) -> None:
         hide_index=True,
         use_container_width=True,
     )
+
+
+def _build_scan_message(results: tuple[CompanyScanResult, ...]) -> tuple[str, str]:
+    total_matching_jobs = sum(result.found_jobs for result in results)
+    new_jobs = sum(result.new_jobs for result in results)
+    seen_jobs = sum(result.seen_jobs for result in results)
+    failed_companies = [result for result in results if result.error is not None]
+
+    if results and len(failed_companies) == len(results):
+        return (
+            "error",
+            "Live scan failed for all configured companies. Existing jobs below are from an earlier successful scan.",
+        )
+
+    message = f"Scan complete: {total_matching_jobs} matching jobs, {new_jobs} new, {seen_jobs} seen."
+    if failed_companies:
+        return "warning", f"{message} {len(failed_companies)} companies could not be loaded."
+
+    return "success", message
 
 
 def _render_job_table(database: JobDatabase, companies: list[Company]) -> None:
