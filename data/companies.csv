@@ -1,5 +1,5 @@
 company_name,career_url,location,notes
-Sandvik,https://www.home.sandvik/en/careers/,Global,Official career page
-SAP,https://jobs.sap.com/jobs,Global,Official SAP jobs portal
-Ericsson,https://www.ericsson.com/careers,Global,Official career page
-Volvo Group,https://www.volvogroup.com/en/careers.html,Global,Official career page
+SAP,https://jobs.sap.com/search/?q=software,Global,Official SAP jobs search
+Volvo Group,https://jobs.volvogroup.com/search/?q=software&locale=en-EN,Global,Official Volvo Group jobs search
+Sandvik,https://www.home.sandvik/en/careers/job-search/?q=software,Global,Official Sandvik job search
+Ericsson,https://www.ericsson.com/en/careers/job-opportunities?query=software,Global,Official Ericsson job search

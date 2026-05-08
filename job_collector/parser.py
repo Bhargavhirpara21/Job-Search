@@ -12,14 +12,31 @@ from job_collector.models import Company, JobPosting
 
 NOISE_LINK_TEXT: tuple[str, ...] = (
     "apply now",
+    "data privacy",
+    "eu data act",
     "learn more",
     "read more",
     "view details",
     "more details",
+    "more information",
+    "offerings",
+    "other websites",
+    "other sandvik websites",
     "sign in",
     "login",
     "privacy",
     "cookies",
+    "cookie privacy policy",
+)
+
+JOB_CONTEXT_MARKERS: tuple[str, ...] = (
+    "apply",
+    "job id",
+    "job requisition",
+    "location",
+    "posted",
+    "published",
+    "requisition",
 )
 
 
@@ -43,6 +60,9 @@ def extract_visible_job_postings(html: str, company: Company) -> list[JobPosting
             continue
 
         job_url = urljoin(company.career_url, href)
+        if not _looks_like_job_posting(title, job_url, nearby_text):
+            continue
+
         seen_key = (title.lower(), job_url)
         if seen_key in seen_keys:
             continue
@@ -79,7 +99,23 @@ def _clean_text(value: str) -> str:
 
 def _is_noise_link(title: str) -> bool:
     normalized_title = title.lower()
-    return normalized_title in NOISE_LINK_TEXT or len(normalized_title) < 3
+    word_count = len(normalized_title.split())
+    return normalized_title in NOISE_LINK_TEXT or len(normalized_title) < 3 or len(title) > 140 or word_count > 16
+
+
+def _looks_like_job_posting(title: str, job_url: str, nearby_text: str) -> bool:
+    normalized_url = job_url.lower()
+    if re.search(r"/job(?:s)?/", normalized_url):
+        return True
+    if re.search(r"\b[a-z]?\d{6,}\b", normalized_url):
+        return True
+    if re.search(r"\br\d{7}\b", normalized_url):
+        return True
+
+    normalized_nearby_text = nearby_text.lower()
+    marker_count = sum(1 for marker in JOB_CONTEXT_MARKERS if marker in normalized_nearby_text)
+    title_is_heading_like = title.strip() == _clean_text(title) and not title.strip().endswith(".")
+    return marker_count >= 2 and title_is_heading_like
 
 
 def _nearby_text(anchor: Tag) -> str:

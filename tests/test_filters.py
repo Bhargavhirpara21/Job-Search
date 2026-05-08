@@ -36,3 +36,10 @@ def test_it_keyword_uses_word_boundary() -> None:
     assert "IT" in matched_keywords
     assert keep_marketing_job is False
 
+
+def test_excludes_buyer_roles_even_when_title_mentions_software() -> None:
+    """Buyer roles should be treated as purchasing even when they mention software."""
+    keep_job, matched_keywords = should_keep_job("(Senior) Category Buyer Software", "")
+
+    assert keep_job is False
+    assert matched_keywords == ()

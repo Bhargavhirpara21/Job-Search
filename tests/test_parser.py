@@ -32,3 +32,23 @@ def test_extracts_matching_job_links_and_skips_unrelated_jobs() -> None:
     assert jobs[0].location == "Berlin"
     assert "software" in jobs[0].matched_keywords
 
+
+def test_skips_technical_footer_or_category_links_that_are_not_postings() -> None:
+    """Parser should not treat broad technical footer/category links as jobs."""
+    html = """
+    <html>
+      <body>
+        <footer>
+          <a href="https://developers.example.com/">Developer</a>
+        </footer>
+        <nav>
+          <a href="/offerings/digitalization/">Digitalization</a>
+        </nav>
+      </body>
+    </html>
+    """
+    company = Company(company_name="ExampleCo", career_url="https://example.com/careers")
+
+    jobs = extract_visible_job_postings(html, company)
+
+    assert jobs == []

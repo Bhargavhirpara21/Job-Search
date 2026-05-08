@@ -54,6 +54,8 @@ DEFAULT_EXCLUDE_TITLE_KEYWORDS: tuple[str, ...] = (
     "legal",
     "warehouse",
     "logistics",
+    "buyer",
+    "category buyer",
     "purchasing",
     "procurement",
     "customer service",
@@ -117,4 +119,3 @@ def _contains_keyword(text: str, keyword: str) -> bool:
     suffix = r"(?![a-z0-9])" if ends_with_word else ""
     pattern = f"{prefix}{escaped_keyword}{suffix}"
     return re.search(pattern, text) is not None
-
