@@ -63,6 +63,10 @@ def _render_scan_controls(config: AppConfig, database: JobDatabase, logger: logg
         if failed_companies:
             logger.warning("Failed companies during scan: %s", ", ".join(failed_companies))
             st.warning(f"Could not load: {', '.join(failed_companies)}")
+            with st.expander("Load error details"):
+                for result in summary.results:
+                    if result.error is not None:
+                        st.write(f"{result.company_name}: {result.error}")
 
 
 def _render_job_table(database: JobDatabase) -> None:

@@ -10,12 +10,17 @@ from job_collector.service import JobScanService, load_companies_from_csv
 
 class _FakeScraper:
     pages: dict[str, str | None]
+    errors: dict[str, str]
 
-    def __init__(self, pages: dict[str, str | None]) -> None:
+    def __init__(self, pages: dict[str, str | None], errors: dict[str, str] | None = None) -> None:
         self.pages = pages
+        self.errors = errors or {}
 
     def fetch_html(self, company: Company) -> str | None:
         return self.pages.get(company.company_name)
+
+    def get_last_error(self, company: Company) -> str | None:
+        return self.errors.get(company.company_name)
 
 
 def test_scan_service_saves_jobs_and_continues_after_failed_pages(tmp_path: Path) -> None:
@@ -35,7 +40,8 @@ def test_scan_service_saves_jobs_and_continues_after_failed_pages(tmp_path: Path
             </html>
             """,
             "BrokenCo": None,
-        }
+        },
+        {"BrokenCo": "Playwright browser driver could not start."},
     )
     service = JobScanService(scraper, database, logger)
     companies = (
@@ -49,7 +55,7 @@ def test_scan_service_saves_jobs_and_continues_after_failed_pages(tmp_path: Path
     assert summary.total_matching_jobs == 1
     assert summary.new_jobs == 1
     assert summary.seen_jobs == 0
-    assert summary.results[1].error == "Career page could not be loaded."
+    assert summary.results[1].error == "Playwright browser driver could not start."
     assert len(records) == 1
     assert records[0].job_title == "Platform Engineer"
     assert records[0].status == "new"

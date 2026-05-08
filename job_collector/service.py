@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import pandas as pd
 
@@ -15,11 +15,21 @@ from job_collector.parser import extract_visible_job_postings
 REQUIRED_COMPANY_COLUMNS: tuple[str, ...] = ("company_name", "career_url")
 
 
+@runtime_checkable
 class CareerPageLoader(Protocol):
     """Interface for loading rendered career page HTML."""
 
     def fetch_html(self, company: Company) -> str | None:
         """Return rendered HTML for a company career page, or None on failure."""
+        ...
+
+
+@runtime_checkable
+class CareerPageLoadDiagnostics(Protocol):
+    """Optional interface for loaders that expose the latest page-load error."""
+
+    def get_last_error(self, company: Company) -> str | None:
+        """Return the latest load error for a company when one is available."""
         ...
 
 
@@ -62,7 +72,7 @@ class JobScanService:
         total_seen_jobs = 0
 
         for company in companies:
-            html = self._load_company_html(company)
+            html, load_error = self._load_company_html(company)
             if html is None:
                 results.append(
                     CompanyScanResult(
@@ -70,7 +80,7 @@ class JobScanService:
                         found_jobs=0,
                         new_jobs=0,
                         seen_jobs=0,
-                        error="Career page could not be loaded.",
+                        error=load_error or "Career page could not be loaded.",
                     )
                 )
                 continue
@@ -106,15 +116,23 @@ class JobScanService:
             seen_jobs=total_seen_jobs,
         )
 
-    def _load_company_html(self, company: Company) -> str | None:
+    def _load_company_html(self, company: Company) -> tuple[str | None, str | None]:
         try:
-            return self._scraper.fetch_html(company)
+            html = self._scraper.fetch_html(company)
+            if html is None:
+                return None, self._get_loader_error(company)
+            return html, None
         except RuntimeError as exc:
             self._logger.warning("Could not load %s career page: %s", company.company_name, exc)
-            return None
+            return None, str(exc)
         except ValueError as exc:
             self._logger.warning("Invalid career page response for %s: %s", company.company_name, exc)
+            return None, str(exc)
+
+    def _get_loader_error(self, company: Company) -> str | None:
+        if not isinstance(self._scraper, CareerPageLoadDiagnostics):
             return None
+        return self._scraper.get_last_error(company)
 
 
 def load_companies_from_csv(csv_path: Path, logger: logging.Logger) -> list[Company]:
